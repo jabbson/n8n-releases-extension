@@ -2,6 +2,8 @@
 
 A Chrome browser extension that displays the latest releases and pre-releases from the [n8n-io/n8n](https://github.com/n8n-io/n8n) GitHub repository.
 
+<img width="649" height="403" alt="image" src="https://github.com/user-attachments/assets/a07220eb-46ad-408a-b068-1095dfbd5302" />
+
 ## Overview
 
 This extension provides a quick and convenient way to view n8n release information directly from your browser. It fetches release data from the GitHub API and displays:
