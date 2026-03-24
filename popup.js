@@ -2,6 +2,7 @@
 const GITHUB_API_BASE = 'https://api.github.com/repos/n8n-io/n8n/releases';
 const CACHE_KEY = 'n8n_releases_cache';
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
+const VERSIONED_TAG_RE = /^(n8n@)?\d+\.\d+\.\d+/;
 
 // Configure marked.js for markdown rendering, links open in new tab
 if (typeof marked !== 'undefined') {
@@ -100,41 +101,42 @@ async function fetchReleases(forceRefresh = false) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    let latestResponse, allResponse;
+    let stableResponse, allResponse;
     try {
-      latestResponse = await fetch(`${GITHUB_API_BASE}/latest`, { signal: controller.signal });
-      allResponse = await fetch(`${GITHUB_API_BASE}?per_page=100`, { signal: controller.signal });
+      [stableResponse, allResponse] = await Promise.all([
+        fetch(`${GITHUB_API_BASE}/tags/stable`, { signal: controller.signal }),
+        fetch(`${GITHUB_API_BASE}?per_page=100`, { signal: controller.signal })
+      ]);
     } finally {
       clearTimeout(timeoutId);
     }
 
-    if (latestResponse.status === 403 || latestResponse.status === 429) {
+    if (stableResponse.status === 403 || stableResponse.status === 429 ||
+        allResponse.status === 403 || allResponse.status === 429) {
       throw new Error('GitHub API rate limit exceeded. Please wait a few minutes and try again.');
     }
-    if (!latestResponse.ok) {
-      throw new Error(`Failed to fetch latest release: ${latestResponse.status}`);
-    }
-    const latestRelease = await latestResponse.json();
-
-    if (allResponse.status === 403 || allResponse.status === 429) {
-      throw new Error('GitHub API rate limit exceeded. Please wait a few minutes and try again.');
+    if (!stableResponse.ok) {
+      throw new Error(`Failed to fetch stable release: ${stableResponse.status}`);
     }
     if (!allResponse.ok) {
       throw new Error(`Failed to fetch releases: ${allResponse.status}`);
     }
-    const allReleases = await allResponse.json();
-    
+
+    const [latestRelease, allReleases] = await Promise.all([stableResponse.json(), allResponse.json()]);
+
+    const isVersionedRelease = r => VERSIONED_TAG_RE.test(r.tag_name);
+
+    const latestVersion = extractVersion(latestRelease);
     const pastReleases = allReleases
-      .filter(release => release.prerelease === false)
+      .filter(release => release.prerelease === false && isVersionedRelease(release) && extractVersion(release) !== latestVersion)
       .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
-      .slice(1, 11);
+      .slice(0, 10);
 
     const preReleases = allReleases
       .filter(release => {
-        const isPrerelease = release.prerelease === true;
-        const hasRcTag = release.tag_name.toLowerCase().includes('rc');
-        const hasExpTag = release.tag_name.toLowerCase().includes('-exp');
-        return isPrerelease && !hasRcTag && !hasExpTag;
+        if (!release.prerelease || !isVersionedRelease(release)) return false;
+        const tag = release.tag_name.toLowerCase();
+        return !tag.includes('rc') && !tag.includes('-exp');
       })
       .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
       .slice(0, 10);
@@ -253,6 +255,17 @@ function displayPreReleases(releases) {
   });
 }
 
+function extractVersion(release) {
+  if (VERSIONED_TAG_RE.test(release.tag_name)) {
+    return release.tag_name;
+  }
+  if (release.body) {
+    const match = release.body.match(/\b(\d+\.\d+\.\d+)\b/);
+    if (match) return `n8n@${match[1]}`;
+  }
+  return release.name || release.tag_name;
+}
+
 // Create DOM element for release display with markdown content
 function createReleaseElement(release, releaseType) {
   const releaseDiv = document.createElement('div');
@@ -285,7 +298,7 @@ function createReleaseElement(release, releaseType) {
   header.innerHTML = `
     <div class="release-info">
       <div class="release-title">
-        ${escapeHtml(release.name || release.tag_name)}
+        ${escapeHtml(extractVersion(release))}
         <span class="release-badge ${badgeClass}">
           ${badgeText}
         </span>
