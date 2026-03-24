@@ -284,7 +284,7 @@ function createReleaseElement(release, releaseType) {
   let badgeClass, badgeText;
   if (releaseType === 'latest') {
     badgeClass = 'badge-latest';
-    badgeText = 'Latest';
+    badgeText = 'Stable';
   } else if (releaseType === 'past') {
     badgeClass = 'badge-past';
     badgeText = 'Past Release';
